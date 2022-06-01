@@ -11,14 +11,15 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using ClosedXML.Excel;
+using Newtonsoft.Json.Linq;
+using javax.script;
+using Newtonsoft.Json;
 
 namespace CheckZalo
 {
     public partial class Form1 : Form
     {
-        List<string> KeyProXyList = new List<string>();
         List<string> SdtList = new List<string>();
-        TinProxyHelper proxy = new TinProxyHelper();
         static volatile bool paused = false;
         static volatile bool finished = false;
         private static readonly HttpClient client = new HttpClient();
@@ -33,7 +34,7 @@ namespace CheckZalo
         {
 
         }
-        public void Update_ListView(int stt, string SDT,string status, string name, string email, string dem)
+        public void Update_ListView(int stt, string SDT,string status, string name, string email)
         {
             DataGridViewRow row = new DataGridViewRow();
             row.CreateCells(dataGridView1);  // this line was missing
@@ -42,7 +43,6 @@ namespace CheckZalo
             row.Cells[2].Value = status;
             row.Cells[3].Value = email;
             row.Cells[4].Value = name;
-            row.Cells[5].Value = dem;
 
 
             Invoke(new System.Action(() =>
@@ -57,13 +57,7 @@ namespace CheckZalo
                 label3.Text = "Tổng số: "+total.ToString();
             }));
         }
-        public void Update_Total_Proxy()
-        {
-            Invoke(new System.Action(() =>
-            {
-                label1.Text = "Key Proxy (mỗi key 1 dòng) (" + textBox1.Lines.Length.ToString()+")";
-            }));
-        }
+        
         public void Update_Success()
         {
             Invoke(new System.Action(() =>
@@ -71,19 +65,15 @@ namespace CheckZalo
                 label4.Text = "Thành công: " + success;
             }));
         }
-        public async Task<string> CheckSdt(string stt, string sdt, string proxy2, string dem)
+        public async Task<string> CheckSdt(string stt, string sdt)
         {
-            var handler = new HttpClientHandler{
-                Proxy = new WebProxy(proxy2, false),
-                UseProxy = true
-            }
-            ;
+            var handler = new HttpClientHandler{};
 
             handler.AutomaticDecompression = ~DecompressionMethods.All;
 
             using (var httpClient = new HttpClient(handler))
             {
-                using (var request = new HttpRequestMessage(new HttpMethod("GET"), "https://zalo.me/"+sdt))
+                using (var request = new HttpRequestMessage(new HttpMethod("GET"), "https://m.facebook.com/share_preview/?surl=https%3A%2F%2Fzalo.me%2F" + sdt))
                 {
                     request.Headers.TryAddWithoutValidation("authority", "zalo.me");
                     request.Headers.TryAddWithoutValidation("accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9");
@@ -99,40 +89,50 @@ namespace CheckZalo
                     request.Headers.TryAddWithoutValidation("sec-fetch-user", "?1");
                     request.Headers.TryAddWithoutValidation("upgrade-insecure-requests", "1");
                     request.Headers.TryAddWithoutValidation("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.5005.63 Safari/537.36");
+                    request.Headers.TryAddWithoutValidation("cookie", "sb=KZ-XYkdo2GLQ-Upvv-j-RWMt; wd=2560x1297; datr=KZ-XYo2DO7Mn4XIE-CmEHpSB; c_user=100022013826417; xs=45%3AhHGPnFb3eqMpLA%3A2%3A1654103855%3A-1%3A13343; fr=0UvS5V7s3RQzSgNE6.AWXCYZgscYT6YhMBve17RJmnTq4.Bil58p.Fe.AAA.0.0.Bil58x.AWUIZEs-QIg; presence=C%7B%22t3%22%3A%5B%5D%2C%22utc3%22%3A1654103861594%2C%22v%22%3A1%7D");
 
                     var response = await httpClient.SendAsync(request);
                     var result = await response.Content.ReadAsStringAsync();
                     result = result.ToString();
-                    bool flag = result.Contains("sitekey");
-                    if (!flag)
+                    MessageBox.Show(result);
+                    bool flag = result.Contains("attachment[params][title]");
+                    success++;
+                    Update_Success();
+                    if (flag)
                     {
-                        if (result.Contains("inconvenience"))
+                        bool flag2 = result.Contains("Zalo App");
+                        bool flag3 = result.Contains("Zalo -");
+                        if (flag2)
                         {
-                            Update_ListView(Int32.Parse(stt), sdt, "Không có tài khoản Zalo", "", "", "Key"+dem);
-
-                            return ("Không Có SDT");
+                            Update_ListView(Int32.Parse(stt), sdt, "Không có tài khoản", "", "");
                         }
-                        else {
-                            string pat = "(content=\")(.+)(\"/>)";
-                            string pat2 = "(<title>Zalo - )(.+)(</title>)";
+                        else
+                        {   
+                            string pat = "(mfss fcb)(.+)(sharerAttachmentCaption)";
+                            string pat2 = @"(=60&h=60&url=)(.+)(&ext=jpg&utld=zadn.vn)";
+
                             Regex r = new Regex(pat, RegexOptions.IgnoreCase);
                             Regex r2 = new Regex(pat2, RegexOptions.IgnoreCase);
 
-                            MatchCollection link_avt = r.Matches(result);
-                            MatchCollection name = r2.Matches(result);
-                            var img_url = link_avt[0].Value.Replace("content=\"", "").Replace("\"/>", "");
-                            var name_zalo = name[0].Value.Replace("<title>Zalo - ", "").Replace("</title>", "");
-                            Update_ListView(Int32.Parse(stt), sdt, "OK", img_url, name_zalo, "Key" + dem);
-                            success++;
-                            Update_Success();
+                            MatchCollection name = r.Matches(result);
+                            MatchCollection link_avt = r2.Matches(result);
+
+                            //var img_url = link_avt[0].Value.Replace("safe_image.php?w=60&h=60&url=", "").Replace("&ext=jpg&utld=zadn.vn", "");
+                            var name_zalo = name[0].Value.Replace("mfss fcb\\\">Zalo","").Replace("\\u003C\\/span>\\u003Cdiv class=\\\"sharerAttachmentCaption","");
+
+                            Update_ListView(Int32.Parse(stt), sdt, "OK", "", name_zalo);
+
                             return ("Có SDT");
                         }
+                        
+
                     }
                     else
-                    {
-                        Update_ListView(Int32.Parse(stt), sdt, "Block IP", "", "", "Key" + dem);
+                    {   
+                        Update_ListView(Int32.Parse(stt), sdt, "Block", "", "");
                         return "2";
                     }
+                    
                     return "2";
                 }
             }
@@ -164,48 +164,12 @@ namespace CheckZalo
             {
                 read_Excel();
             }
-            for (int y = 0; y < proxys.Count(); y++)
-            {   
-                proxy.ChangeProxy(proxys[y]);
-            }
-            for(int y = 0; y < textBox1.Lines.Length; y++)
-            {
-                KeyProXyList.Add(textBox1.Lines[y]);
-            }
-            Update_Total_Proxy();
-            int dem = 0;
-            string getProxy = proxy.GetProxy(proxys[0]);
-            bool flag_reset = true;
             for (int y = 0; y < SdtList.Count(); y++)
             {
                 while (paused) { };
-                if ((dem+1) % 10 == 0)
-                {
-                    if (flag_reset)
-                    {
-                        for (int x = 0; x < KeyProXyList.Count(); x++)
-                        {
-                            string flag = proxy.ChangeProxy(KeyProXyList[x]);
-                            
-                        }
-                        flag_reset = false;
-                    }
-                }
+                CheckSdt(y.ToString(), SdtList[y]);
 
-                getProxy = proxy.GetProxy(KeyProXyList[(dem+1) % 10]);
-                if(y%5 == 4)
-                {
-                    dem++;
-                    flag_reset = true;
-                }
-                
-                
-                if (getProxy != "2") {
-                    CheckSdt(y.ToString(), SdtList[y], getProxy, (dem % 10).ToString());
-                }
-                dataGridView1.HorizontalScrollingOffset = dataGridView1.HorizontalScrollingOffset + 10;
-
-                Thread.Sleep(1500);
+                Thread.Sleep(500);
                 finished = true;
 
 
@@ -333,6 +297,16 @@ namespace CheckZalo
         }
 
         private void textBox2_TextChanged_1(object sender, EventArgs e)
+        {
+
+        }
+
+        private void label7_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void textBox1_TextChanged_1(object sender, EventArgs e)
         {
 
         }
